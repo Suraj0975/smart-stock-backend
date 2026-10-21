@@ -1,0 +1,11 @@
+[
+  {
+    "id": "c6682487-288f-499a-b574-03c4b0b06211",
+    "name": "yash",
+    "email": "yash@gmail.com",
+    "password": "$2b$12$BnkVAt0zL2gATaQoHCrh/OmCzTkrgvF08L87BU2WxulPUTOSIAVO.",
+    "role": "employee",
+    "isActive": true,
+    "createdAt": "2026-10-20T17:12:40.087Z"
+  }
+]
