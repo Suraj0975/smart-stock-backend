@@ -1,58 +1,16 @@
-
-const fs = require("node:fs/promises");
-const path = require("node:path");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { randomUUID } = require("node:crypto");
-
-const dataDirectory = path.join(__dirname, "../../data");
-const usersFile = path.join(dataDirectory, "users.json");
-
-async function readUsers() {
-  await fs.mkdir(dataDirectory, { recursive: true });
-
-  try {
-    const content = await fs.readFile(usersFile, "utf8");
-    const users = JSON.parse(content);
-
-    if (!Array.isArray(users)) {
-      throw new Error("users.json must contain a JSON array.");
-    }
-
-    return users;
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      await fs.writeFile(usersFile, "[]", "utf8");
-      return [];
-    }
-
-    throw error;
-  }
-}
-
-async function saveUsers(users) {
-  await fs.mkdir(dataDirectory, { recursive: true });
-
-  await fs.writeFile(
-    usersFile,
-    JSON.stringify(users, null, 2),
-    "utf8"
-  );
-}
+const User = require("../models/User");
 
 function createToken(user) {
-  const secret =
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV !== "production"
-      ? "smart-stock-local-development-secret"
-      : "");
+  const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    throw new Error("JWT_SECRET is missing from backend/.env");
+    throw new Error("JWT_SECRET is missing from environment variables");
   }
 
   return jwt.sign(
-    { id: user.id, role: user.role },
+    { id: user._id || user.id, role: user.role },
     secret,
     { expiresIn: "7d" }
   );
@@ -60,7 +18,7 @@ function createToken(user) {
 
 function publicUser(user) {
   return {
-    id: user.id,
+    id: user._id || user.id,
     name: user.name,
     email: user.email,
     role: user.role
@@ -91,28 +49,25 @@ exports.register = async (req, res) => {
       });
     }
 
-    const users = await readUsers();
     const normalizedEmail = email.trim().toLowerCase();
+    const existingUser = await User.findOne({ email: normalizedEmail });
 
-    if (users.some((user) => user.email === normalizedEmail)) {
+    if (existingUser) {
       return res.status(409).json({
         success: false,
         message: "An account with this email already exists."
       });
     }
 
-    const user = {
-      id: randomUUID(),
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
-      password: await bcrypt.hash(password, 12),
+      password: hashedPassword,
       role: "employee",
-      isActive: true,
-      createdAt: new Date().toISOString()
-    };
-
-    users.push(user);
-    await saveUsers(users);
+      isActive: true
+    });
 
     return res.status(201).json({
       success: true,
@@ -121,11 +76,11 @@ exports.register = async (req, res) => {
       user: publicUser(user)
     });
   } catch (error) {
-    console.error("Local registration error:", error);
+    console.error("MongoDB registration error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to create account. Check the backend terminal."
+      message: error.message || "Unable to create account."
     });
   }
 };
@@ -146,11 +101,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    const users = await readUsers();
-
-    const user = users.find(
-      (item) => item.email === email.trim().toLowerCase()
-    );
+    const normalizedEmail = email.trim().toLowerCase();
+    
+    // Explicitly select '+password' because the schema has 'select: false'
+    const user = await User.findOne({ email: normalizedEmail }).select("+password");
 
     if (
       !user ||
@@ -169,18 +123,18 @@ exports.login = async (req, res) => {
       });
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "Login successful.",
       token: createToken(user),
       user: publicUser(user)
     });
   } catch (error) {
-    console.error("Local login error:", error);
+    console.error("MongoDB login error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to log in. Check the backend terminal."
+      message: error.message || "Unable to log in."
     });
   }
 };
